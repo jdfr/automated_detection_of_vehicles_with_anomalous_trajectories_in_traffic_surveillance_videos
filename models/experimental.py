@@ -92,18 +92,27 @@ def attempt_load(weights, map_location=None, inplace=True, fuse=True):
     model = Ensemble()
     for w in weights if isinstance(weights, list) else [weights]:
         ckpt = torch.load(attempt_download(w), map_location=map_location)  # load
-        if fuse:
-            model.append(ckpt['ema' if ckpt.get('ema') else 'model'].float().fuse().eval())  # FP32 model
-        else:
-            model.append(ckpt['ema' if ckpt.get('ema') else 'model'].float().eval())  # without layer fuse
+        #if fuse:
+        #    model.append(ckpt['ema' if ckpt.get('ema') else 'model'].float().fuse().eval())  # FP32 model
+        #else:
+        #    model.append(ckpt['ema' if ckpt.get('ema') else 'model'].float().eval())  # without layer fuse
+        ckpt = (ckpt['ema'] or ckpt['model']).float()  # FP32 model
+        model.append(ckpt.fuse().eval() if fuse else ckpt.eval())  # fused or un-fused model in eval mode
 
 
     # Compatibility updates
     for m in model.modules():
-        if type(m) in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, Detect, Model]:
-            m.inplace = inplace  # pytorch 1.7.0 compatibility
-        elif type(m) is Conv:
-            m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatibility
+        #if type(m) in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, Detect, Model]:
+        #    m.inplace = inplace  # pytorch 1.7.0 compatibility
+        #elif type(m) is Conv:
+        #    m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatibility
+        t = type(m)
+        if t in (nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, Detect, Model):
+            m.inplace = inplace  # torch 1.7.0 compatibility
+        elif t is nn.Upsample:
+            m.recompute_scale_factor = None  # torch 1.11.0 compatibility
+        elif t is Conv:
+            m._non_persistent_buffers_set = set()  # torch 1.6.0 compatibility
 
     if len(model) == 1:
         return model[-1]  # return model

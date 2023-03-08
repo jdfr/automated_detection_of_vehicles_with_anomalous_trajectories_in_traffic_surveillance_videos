@@ -21,13 +21,15 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 
 from models.experimental import attempt_load
-from utils.datasets import LoadImages, LoadStreams
+from utils.datasets import LoadImages, LoadStreams, LoadedImages
 from utils.general import apply_classifier, check_img_size, check_imshow, check_requirements, check_suffix, colorstr, \
     increment_path, is_ascii, non_max_suppression, print_args, save_one_box, scale_coords, set_logging, \
     strip_optimizer, xyxy2xywh
 from utils.plots import Annotator, colors
 from utils.torch_utils import load_classifier, select_device, time_sync
 
+def run_simple(weights, images, imgsz=(640, 640), conf_thres=0.25, iou_thres=0.45):
+  return run(weights=weights, sourceimgs=images, nosave=True, return_preds=True, imgsz=imgsz, conf_thres=conf_thres, iou_thres=iou_thres)
 
 @torch.no_grad()
 def run(weights='yolov5s.pt',  # model.pt path(s)
@@ -41,6 +43,8 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         save_txt=False,  # save results to *.txt
         save_conf=False,  # save confidences in --save-txt labels
         save_crop=False,  # save cropped prediction boxes
+        return_preds=False,
+        sourceimgs=None,
         nosave=False,  # do not save images/videos
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=False,  # class-agnostic NMS
@@ -55,13 +59,14 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         hide_conf=False,  # hide confidences
         half=False,  # use FP16 half-precision inference
         ):
-    save_img = not nosave and not source.endswith('.txt')  # save inference images
-    webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
-        ('rtsp://', 'rtmp://', 'http://', 'https://'))
+    save_img = sourceimgs is None and not nosave and not source.endswith('.txt')  # save inference images
+    webcam = sourceimgs is None and (source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
+        ('rtsp://', 'rtmp://', 'http://', 'https://')))
 
     # Directories
-    save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
-    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+    if not return_preds:
+      save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
+      (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
     # Initialize
     set_logging()
@@ -84,11 +89,11 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
             modelc = load_classifier(name='resnet50', n=2)  # initialize
             modelc.load_state_dict(torch.load('resnet50.pt', map_location=device)['model']).to(device).eval()
     elif onnx:
-        check_requirements(('onnx', 'onnxruntime'))
+        #check_requirements(('onnx', 'onnxruntime'))
         import onnxruntime
         session = onnxruntime.InferenceSession(w, None)
     else:  # TensorFlow models
-        check_requirements(('tensorflow>=2.4.1',))
+        #check_requirements(('tensorflow>=2.4.1',))
         import tensorflow as tf
         if pb:  # https://www.tensorflow.org/guide/migrate#a_graphpb_or_graphpbtxt
             def wrap_frozen_graph(gd, inputs, outputs):
@@ -117,7 +122,10 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt)
         bs = len(dataset)  # batch_size
     else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
+        if sourceimgs is None:
+          dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
+        else:
+          dataset = LoadedImages(sourceimgs, img_size=imgsz, stride=stride, auto=pt)
         bs = 1  # batch_size
     vid_path, vid_writer = [None] * bs, [None] * bs
 
@@ -125,6 +133,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
     if pt and device.type != 'cpu':
         model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
     dt, seen = [0.0, 0.0, 0.0], 0
+    all_preds = []
     for path, img, im0s, vid_cap in dataset:
         t1 = time_sync()
         if onnx:
@@ -177,6 +186,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
             pred = apply_classifier(pred, modelc, img, im0s)
 
         # Process predictions
+        preds = []
         for i, det in enumerate(pred):  # per image
             seen += 1
             if webcam:  # batch_size >= 1
@@ -184,13 +194,17 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
             else:
                 p, s, im0, frame = path, '', im0s.copy(), getattr(dataset, 'frame', 0)
 
-            p = Path(p)  # to Path
-            save_path = str(save_dir / p.name)  # img.jpg
-            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
+            if not return_preds:
+              p = Path(p)  # to Path
+            if save_img or save_crop or view_img:
+              save_path = str(save_dir / p.name)  # img.jpg
+            if save_txt:
+              txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
             s += '%gx%g ' % img.shape[2:]  # print string
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-            imc = im0.copy() if save_crop else im0  # for save_crop
-            annotator = Annotator(im0, line_width=line_thickness, pil=not ascii)
+            if save_img or save_crop or view_img:
+              imc = im0.copy() if save_crop else im0  # for save_crop
+              annotator = Annotator(im0, line_width=line_thickness, pil=not ascii)
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
@@ -202,11 +216,16 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
-                    if save_txt:  # Write to file
-                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                        line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
-                        with open(txt_path + '.txt', 'a') as f:
+                    if save_txt or return_preds:  # Write to file
+                        if save_txt:
+                          xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                          line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
+                          with open(txt_path + '.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
+                        if return_preds:
+                          #xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4))).view(-1).tolist()
+                          myxyxy = (torch.tensor(xyxy).view(1, 4)).view(-1).tolist()
+                          preds.append((int(cls), conf, myxyxy))
 
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
@@ -219,10 +238,14 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
             print(f'{s}Done. ({t3 - t2:.3f}s)')
 
             # Stream results
-            im0 = annotator.result()
+            if save_img or save_crop or view_img:
+              im0 = annotator.result()
+
             if view_img:
+                cv2.namedWindow(str(p), cv2.WINDOW_NORMAL)
                 cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
+                cv2.waitKey(0)  # 1 millisecond
+                cv2.destroyAllWindows()
 
             # Save results (image with detections)
             if save_img:
@@ -242,6 +265,12 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                             save_path += '.mp4'
                         vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer[i].write(im0)
+
+        if return_preds:
+          all_preds.append(preds)
+
+    if return_preds:
+      return all_preds
 
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
@@ -286,8 +315,86 @@ def parse_opt():
 
 
 def main(opt):
-    check_requirements(exclude=('tensorboard', 'thop'))
+    #check_requirements(exclude=('tensorboard', 'thop'))
     run(**vars(opt))
+
+
+
+@torch.no_grad()
+def load_weights_for_streamlined(
+        weights='yolov5s.pt',  # model.pt path(s)
+        device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
+        half=False,  # use FP16 half-precision inference
+        ):
+    set_logging()
+    device = select_device(device)
+    half &= device.type != 'cpu'  # half precision only supported on CUDA
+
+    # Load model
+    w = weights[0] if isinstance(weights, list) else weights
+    model = attempt_load(weights, map_location=device)  # load FP32 model
+    stride = int(model.stride.max())  # model stride
+    names = model.module.names if hasattr(model, 'module') else model.names  # get class names
+    if half:
+        model.half()  # to FP16
+    return model, stride, names, device
+
+@torch.no_grad()
+def run_streamlined(
+        model=None,
+        stride=None,
+        imgsz=640,  # inference size (pixels)
+        conf_thres=0.25,  # confidence threshold
+        iou_thres=0.45,  # NMS IOU threshold
+        max_det=1000,  # maximum detections per image
+        device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
+        sourceimgs=None,
+        classes=None,  # filter by class: --class 0, or --class 0 2 3
+        agnostic_nms=False,  # class-agnostic NMS
+        augment=False,  # augmented inference
+        half=False,  # use FP16 half-precision inference
+        ):
+    # Directories
+    # Initialize
+    imgsz = check_img_size(imgsz, s=stride)  # check image size
+
+    dataset = LoadedImages(sourceimgs, img_size=imgsz, stride=stride, auto=True)
+    bs = 1  # batch_size
+
+    # Run inference
+    if device.type != 'cpu':
+        model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
+    all_preds = []
+    for path, img, im0s, _ in dataset:
+        img = torch.from_numpy(img).to(device)
+        img = img.half() if half else img.float()  # uint8 to fp16/32
+        img = img / 255.0  # 0 - 255 to 0.0 - 1.0
+        if len(img.shape) == 3:
+            img = img[None]  # expand for batch dim
+
+        # Inference
+        pred = model(img, augment=augment, visualize=False)[0]
+
+        # NMS
+        pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
+
+        # Process predictions
+        preds = []
+        for det in pred:  # per image
+            if len(det):
+                # Rescale boxes from img_size to im0 size
+                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0s.shape).round()
+
+                # Write results
+                for *xyxy, conf, cls in reversed(det):
+                    #xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4))).view(-1).tolist()
+                    myxyxy = (torch.tensor(xyxy).view(1, 4)).view(-1).tolist()+[float(conf), float(cls)]
+                    #preds.append((int(cls), conf, myxyxy))
+                    preds.append(myxyxy)
+
+        all_preds.append(preds)
+
+    return all_preds
 
 
 if __name__ == "__main__":

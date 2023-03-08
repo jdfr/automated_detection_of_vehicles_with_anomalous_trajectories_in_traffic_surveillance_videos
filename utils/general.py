@@ -264,10 +264,12 @@ def check_img_size(imgsz, s=32, floor=0):
     # Verify image size is a multiple of stride s in each dimension
     if isinstance(imgsz, int):  # integer i.e. img_size=640
         new_size = max(make_divisible(imgsz, int(s)), floor)
+        if new_size!=imgsz:
+            print(f'WARNING: B --img-size {imgsz} must be multiple of max stride {s}, updating to {new_size}')
     else:  # list i.e. img_size=[640, 480]
         new_size = [max(make_divisible(x, int(s)), floor) for x in imgsz]
-    if new_size != imgsz:
-        print(f'WARNING: --img-size {imgsz} must be multiple of max stride {s}, updating to {new_size}')
+        if any(a!=b for a, b in zip(new_size, imgsz)):
+            print(f'WARNING: --img-size {imgsz} must be multiple of max stride {s}, updating to {new_size}')
     return new_size
 
 
@@ -346,6 +348,9 @@ def check_dataset(data, autodownload=True):
     if 'names' not in data:
         data['names'] = [f'class{i}' for i in range(data['nc'])]  # assign class names if missing
     train, val, test, s = [data.get(x) for x in ('train', 'val', 'test', 'download')]
+    print('XKCD '+str(train))
+    print('XKCD '+str(val))
+    print('XKCD '+str(test))
     if val:
         val = [Path(x).resolve() for x in (val if isinstance(val, list) else [val])]  # val path
         if not all(x.exists() for x in val):
@@ -458,7 +463,7 @@ def labels_to_class_weights(labels, nc=80):
         return torch.Tensor()
 
     labels = np.concatenate(labels, 0)  # labels.shape = (866643, 5) for COCO
-    classes = labels[:, 0].astype(np.int)  # labels = [class xywh]
+    classes = labels[:, 0].astype(int)  # labels = [class xywh]
     weights = np.bincount(classes, minlength=nc)  # occurrences per class
 
     # Prepend gridpoint count (for uCE training)
