@@ -1,6 +1,18 @@
 # Anomalous Trajectory Detection
 
-This is the source code used to get the results in the paper "Automated detection of vehicles with anomalous trajectories in traffic surveillance videos", accepted for publication in the journal Integrated Computer-Aided Engineering.
+This is the source code used to get the results in the paper "Automated detection of vehicles with anomalous trajectories in traffic surveillance videos":
+
+```
+@article{fernandez2023automated,
+  title={Automated detection of vehicles with anomalous trajectories in traffic surveillance videos},
+  author={Fern{\'a}ndez-Rodr{\'\i}guez, Jose D and Garc{\'\i}a-Gonz{\'a}lez, Jorge and Ben{\'\i}tez-Rochel, Rafaela and Molina-Cabello, Miguel A and Ramos-Jim{\'e}nez, Gonzalo and L{\'o}pez-Rubio, Ezequiel},
+  journal={Integrated Computer-Aided Engineering},
+  number={Preprint},
+  pages={293--309},
+  year={2023},
+  publisher={IOS Press}
+}
+```
 
 The object detector used as a base was yolov5 from https://github.com/ultralytics/yolov5 at commit 9ef94940aa5e9618e7e804f0758f9a6cebfc63a9, but the code was somewhat modified.
 
