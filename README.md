@@ -20,6 +20,8 @@ We compared our results with SORT (in folder `sort/`, taken from https://github.
 
 The code used to detect anomalous trajectories is in `anom_traj_detector.py`. There is a large multiline string at the end of `anom_traj_detector.py` with the command line arguments used to test the anomalous trajectory detection system, both with our method and wwith other methods. The code used to crunch the resulting data is in `summarize.py` and `trajectories.py`.
 
+The original, unmodified code from yolov5 is still licensed under its original license, the GPLv2. The code from SORT and BYTE is still licensed under the respective licenses of each project. All original code and the modifications made to yolov5 to use it as a substrate for our anomalous trajectory detector are now licensed under the AGPLv3 (as part of a drive to harmonize licensing terms over all my repositories for journal papers).
+
 Most of the used datasets are from previous papers:
 
 * The dataset from "Multiple Object Tracking in Urban Mixed Traffic" ( https://www.jpjodoin.com/urbantracker/ ) should be put in `/media/jpjodoin_urbantracker/`
